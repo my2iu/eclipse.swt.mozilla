@@ -22,7 +22,7 @@ IF x.%1==x.x86_64 GOTO X86_64
 IF x.%1==x.ia64 GOTO IA64
 
 :X86
-IF "x.%OUTPUT_DIR%"=="x." set OUTPUT_DIR=..\..\..\org.eclipse.swt.win32.win32.x86
+IF "x.%OUTPUT_DIR%"=="x." set OUTPUT_DIR=..\..\win32.x86
 IF x.%JAVA_HOME%==x. set JAVA_HOME=%SWT_BUILDDIR%\ibm-java2-sdk-50-win-i386
 IF x.%BUILD_XULRUNNER%==x.true GOTO XULRUNNER
 IF x.%2%==x.make_xulrunner GOTO XULRUNNER
@@ -43,7 +43,7 @@ GOTO MAKE
 :X86_64
 
 set PROCESSOR_ARCHITECTURE=AMD64
-IF "x.%OUTPUT_DIR%"=="x." set OUTPUT_DIR=..\..\..\org.eclipse.swt.win32.win32.x86_64
+IF "x.%OUTPUT_DIR%"=="x." set OUTPUT_DIR=..\..\win32.x86_64
 IF x.%JAVA_HOME%==x. set JAVA_HOME=%SWT_BUILDDIR%\ibm-sdk50-x86_64
 set CFLAGS=-DJNI64
 IF x.%BUILD_XULRUNNER%==x.true GOTO XULRUNNER64
@@ -64,7 +64,7 @@ GOTO MAKE
 
 set PROCESSOR_ARCHITECTURE=AMD64
 call %MSSDK%\setenv /SRV64 /RETAIL
-IF "x.%OUTPUT_DIR%"=="x." set OUTPUT_DIR=..\..\..\org.eclipse.swt.win32.win32.ia64
+IF "x.%OUTPUT_DIR%"=="x." set OUTPUT_DIR=..\..\win32.ia64
 IF x.%JAVA_HOME%==x. set JAVA_HOME=%SWT_BUILDDIR%\ibm-sdk142-ia64
 set CFLAGS=-DJNI64
 shift
