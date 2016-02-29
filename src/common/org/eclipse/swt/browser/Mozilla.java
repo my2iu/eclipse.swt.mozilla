@@ -579,7 +579,7 @@ static void LoadLibraries () {
 	if (MozillaPath == null) {
 		try {
 			String libName = MozillaDelegate.getSWTInitLibraryName ();
-			Library.loadLibrary (libName);
+			System.loadLibrary (libName);
 			initLoaded = true;
 		} catch (UnsatisfiedLinkError e) {
 			/*
@@ -676,20 +676,11 @@ public void create (Composite parent, int style) {
 			/* load swt's xulrunner library and invoke XPCOMGlueStartup to load xulrunner's dependencies */
 			MozillaPath = initXULRunner (MozillaPath);
 		} else {
-			/*
-			* If style SWT.MOZILLA was specified then this initialization has already
-			* failed, because SWT.MOZILLA-style Browsers must utilize XULRunner.
-			*/
-			if ((style & SWT.MOZILLA) != 0) {
-				browser.dispose ();
-				String errorString = (MozillaPath != null && MozillaPath.length () > 0) ?
-					" [Failed to use detected XULRunner: " + MozillaPath + "]" :
-					" [Could not detect registered XULRunner to use]";	//$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
-				SWT.error (SWT.ERROR_NO_HANDLES, null, errorString);
-			}
-
-			/* load swt's mozilla library */
-			MozillaPath = initMozilla (MozillaPath);
+			browser.dispose ();
+			String errorString = (MozillaPath != null && MozillaPath.length () > 0) ?
+				" [Failed to use detected XULRunner: " + MozillaPath + "]" :
+				" [Could not detect registered XULRunner to use]";	//$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+			SWT.error (SWT.ERROR_NO_HANDLES, null, errorString);
 		}
 
 		if (!Initialized) {
@@ -2172,61 +2163,6 @@ void initJavaXPCOM (String mozillaPath) {
 	}
 }
 
-String initMozilla (String mozillaPath) {
-	/* attempt to use the GRE pointed at by MOZILLA_FIVE_HOME */
-	long /*int*/ ptr = C.getenv (MozillaDelegate.wcsToMbcs (null, MOZILLA_FIVE_HOME, true));
-	if (ptr != 0) {
-		int length = C.strlen (ptr);
-		byte[] buffer = new byte[length];
-		C.memmove (buffer, ptr, length);
-		mozillaPath = new String (MozillaDelegate.mbcsToWcs (null, buffer));
-
-		/* ensure that client-supplied path is using correct separators */
-		if (SEPARATOR_OS == '/') {
-			mozillaPath = mozillaPath.replace ('\\', SEPARATOR_OS);
-		} else {
-			mozillaPath = mozillaPath.replace ('/', SEPARATOR_OS);
-		}
-	} else {
-		browser.dispose ();
-		SWT.error (SWT.ERROR_NO_HANDLES, null, " [Unknown Mozilla path (MOZILLA_FIVE_HOME not set)]"); //$NON-NLS-1$
-	}
-	if (Device.DEBUG) System.out.println ("Mozilla path: " + mozillaPath); //$NON-NLS-1$
-
-	/*
-	* Note.  Embedding a Mozilla GTK1.2 causes a crash.  The workaround
-	* is to check the version of GTK used by Mozilla by looking for
-	* the libwidget_gtk.so library used by Mozilla GTK1.2. Mozilla GTK2
-	* uses the libwidget_gtk2.so library.
-	*/
-	if (Compatibility.fileExists (mozillaPath, "components/libwidget_gtk.so")) { //$NON-NLS-1$
-		browser.dispose ();
-		SWT.error (SWT.ERROR_NO_HANDLES, null, " [Mozilla GTK2 required (GTK1.2 detected)]"); //$NON-NLS-1$
-	}
-
-	try {
-		Library.loadLibrary ("swt-mozilla"); //$NON-NLS-1$
-	} catch (UnsatisfiedLinkError e) {
-		try {
-			/*
-			 * The initial loadLibrary attempt may have failed as a result of the user's
-			 * system not having libstdc++.so.6 installed, so try to load the alternate
-			 * swt mozilla library that depends on libswtc++.so.5 instead.
-			 */
-			Library.loadLibrary ("swt-mozilla-gcc3"); //$NON-NLS-1$
-		} catch (UnsatisfiedLinkError ex) {
-			browser.dispose ();
-			/*
-			 * Print the error from the first failed attempt since at this point it's
-			 * known that the failure was not due to the libstdc++.so.6 dependency.
-			 */
-			SWT.error (SWT.ERROR_NO_HANDLES, e, " [MOZILLA_FIVE_HOME='" + mozillaPath + "']"); //$NON-NLS-1$ //$NON-NLS-2$
-		}
-	}
-
-	return mozillaPath;
-}
-
 void initXPCOM (String mozillaPath, boolean isXULRunner) {
 	long /*int*/[] result = new long /*int*/[1];
 
@@ -2851,7 +2787,7 @@ void initWindowCreator (nsIServiceManager serviceManager) {
 String initXULRunner (String mozillaPath) {
 	if (Device.DEBUG) System.out.println ("XULRunner path: " + mozillaPath); //$NON-NLS-1$
 	try {
-		Library.loadLibrary ("swt-xulrunner"); //$NON-NLS-1$
+		System.loadLibrary ("swt-xulrunner"); //$NON-NLS-1$
 	} catch (UnsatisfiedLinkError e) {
 		SWT.error (SWT.ERROR_NO_HANDLES, e);
 	}
