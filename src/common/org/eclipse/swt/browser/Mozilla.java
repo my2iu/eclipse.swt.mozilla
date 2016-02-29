@@ -892,29 +892,6 @@ public void create (Composite parent, int style) {
 			result[0] = 0;
 		}
 
-		/*
-		* A Download factory for contract "Transfer" must be registered iff the GRE's version is 1.8.x.
-		*   Check for the availability of the 1.8 implementation of nsIDocShell to determine if the
-		*   GRE's version is 1.8.x.
-		* If the GRE version is < 1.8 then the previously-registered Download factory for contract
-		*   "Download" will be used.
-		* If the GRE version is >= 1.9 then no Download factory is registered because this
-		*   functionality is provided by the GRE.
-		*/
-		if (MozillaVersion.CheckVersion (MozillaVersion.VERSION_XR1_8, true)) {
-			if (!factoriesRegistered) {
-				DownloadFactory_1_8 downloadFactory_1_8 = new DownloadFactory_1_8 ();
-				downloadFactory_1_8.AddRef ();
-				byte[] aContractID = MozillaDelegate.wcsToMbcs (null, XPCOM.NS_TRANSFER_CONTRACTID, true);
-				byte[] aClassName = MozillaDelegate.wcsToMbcs (null, "swtTransfer", true); //$NON-NLS-1$
-				rc = componentRegistrar.RegisterFactory (XPCOM.NS_DOWNLOAD_CID, aClassName, aContractID, downloadFactory_1_8.getAddress ());
-				if (rc != XPCOM.NS_OK) {
-					browser.dispose ();
-					error (rc);
-				}
-				downloadFactory_1_8.Release ();
-			}
-		}
 		componentRegistrar.Release ();
 
 		if (!factoriesRegistered) {
@@ -942,9 +919,7 @@ public void create (Composite parent, int style) {
 	 * The workaround is to subclass the Mozilla window and clear it whenever WM_ERASEBKGND is received.
 	 * This subclass should be removed once content has been set into the browser.
 	 */
-	if (MozillaVersion.CheckVersion (MozillaVersion.VERSION_XR1_9)) {
-		delegate.addWindowSubclass ();
-	}
+	delegate.addWindowSubclass ();
 
 	/* add listeners for progress and content */
 	rc = webBrowser.AddWebBrowserListener (weakReference.getAddress (), IIDStore.GetIID (nsIWebProgressListener.class));
@@ -1576,108 +1551,106 @@ public boolean execute (String script) {
 	* workaround is to invoke the javascript handler directly via C++, which is
 	* exposed as of mozilla 1.9.
 	*/
-	if (MozillaVersion.CheckVersion (MozillaVersion.VERSION_XR1_9)) {
-		int rc = XPCOM.NS_GetServiceManager (result);
-		if (rc != XPCOM.NS_OK) error (rc);
-		if (result[0] == 0) error (XPCOM.NS_NOINTERFACE);
+	int rc = XPCOM.NS_GetServiceManager (result);
+	if (rc != XPCOM.NS_OK) error (rc);
+	if (result[0] == 0) error (XPCOM.NS_NOINTERFACE);
 
-		nsIServiceManager serviceManager = new nsIServiceManager (result[0]);
+	nsIServiceManager serviceManager = new nsIServiceManager (result[0]);
+	result[0] = 0;
+	byte[] aContractID = MozillaDelegate.wcsToMbcs (null, XPCOM.NS_SCRIPTSECURITYMANAGER_CONTRACTID, true);
+	rc = serviceManager.GetServiceByContractID (aContractID, IIDStore.GetIID (nsIScriptSecurityManager.class), result);
+
+	if (rc == XPCOM.NS_OK && result[0] != 0) {
+		nsIScriptSecurityManager securityManager = new nsIScriptSecurityManager (result[0]);
 		result[0] = 0;
-		byte[] aContractID = MozillaDelegate.wcsToMbcs (null, XPCOM.NS_SCRIPTSECURITYMANAGER_CONTRACTID, true);
-		rc = serviceManager.GetServiceByContractID (aContractID, IIDStore.GetIID (nsIScriptSecurityManager.class), result);
+		rc = securityManager.GetSystemPrincipal (result);
+		securityManager.Release ();
 
 		if (rc == XPCOM.NS_OK && result[0] != 0) {
-			nsIScriptSecurityManager securityManager = new nsIScriptSecurityManager (result[0]);
+			nsIPrincipal principal = new nsIPrincipal (result[0]);
 			result[0] = 0;
-			rc = securityManager.GetSystemPrincipal (result);
-			securityManager.Release ();
+			rc = webBrowser.QueryInterface (IIDStore.GetIID (nsIInterfaceRequestor.class), result);
+			if (rc != XPCOM.NS_OK) error (rc);
+			if (result[0] == 0) error (XPCOM.NS_NOINTERFACE);
+
+			nsIInterfaceRequestor interfaceRequestor = new nsIInterfaceRequestor (result[0]);
+			result[0] = 0;
+			rc = interfaceRequestor.GetInterface (IIDStore.GetIID (nsIScriptGlobalObject.class), result);
+			interfaceRequestor.Release ();
 
 			if (rc == XPCOM.NS_OK && result[0] != 0) {
-				nsIPrincipal principal = new nsIPrincipal (result[0]);
+				long /*int*/ scriptGlobalObject = result[0];
 				result[0] = 0;
-				rc = webBrowser.QueryInterface (IIDStore.GetIID (nsIInterfaceRequestor.class), result);
-				if (rc != XPCOM.NS_OK) error (rc);
-				if (result[0] == 0) error (XPCOM.NS_NOINTERFACE);
+				rc = (int/*64*/)XPCOM.nsIScriptGlobalObject_EnsureScriptEnvironment (scriptGlobalObject, 2); /* nsIProgrammingLanguage.JAVASCRIPT */
+				if (rc != XPCOM.NS_OK) {
+					new nsISupports (scriptGlobalObject).Release ();
+				} else {
+					long /*int*/ scriptContext = XPCOM.nsIScriptGlobalObject_GetScriptContext (scriptGlobalObject, 2); /* nsIProgrammingLanguage.JAVASCRIPT */
 
-				nsIInterfaceRequestor interfaceRequestor = new nsIInterfaceRequestor (result[0]);
-				result[0] = 0;
-				rc = interfaceRequestor.GetInterface (IIDStore.GetIID (nsIScriptGlobalObject.class), result);
-				interfaceRequestor.Release ();
+					if (scriptContext != 0) {
+						/* ensure that the received nsIScriptContext implements the expected interface */
+						nsISupports supports = new nsISupports (scriptContext);
+						rc = supports.QueryInterface (IIDStore.GetIID (nsIScriptContext.class), result);
+						if (rc == XPCOM.NS_OK && result[0] != 0) {
+							new nsISupports (result[0]).Release ();
+							result[0] = 0;
 
-				if (rc == XPCOM.NS_OK && result[0] != 0) {
-					long /*int*/ scriptGlobalObject = result[0];
-					result[0] = 0;
-					rc = (int/*64*/)XPCOM.nsIScriptGlobalObject_EnsureScriptEnvironment (scriptGlobalObject, 2); /* nsIProgrammingLanguage.JAVASCRIPT */
-					if (rc != XPCOM.NS_OK) {
-						new nsISupports (scriptGlobalObject).Release ();
-					} else {
-						long /*int*/ scriptContext = XPCOM.nsIScriptGlobalObject_GetScriptContext (scriptGlobalObject, 2); /* nsIProgrammingLanguage.JAVASCRIPT */
-
-						if (scriptContext != 0) {
-							/* ensure that the received nsIScriptContext implements the expected interface */
-							nsISupports supports = new nsISupports (scriptContext);
-							rc = supports.QueryInterface (IIDStore.GetIID (nsIScriptContext.class), result);
-							if (rc == XPCOM.NS_OK && result[0] != 0) {
-								new nsISupports (result[0]).Release ();
-								result[0] = 0;
-
-								long /*int*/ jsContext = XPCOM.nsIScriptContext_GetNativeContext (scriptContext);
-								if (jsContext != 0) {
-									int length = script.length ();
-									char[] scriptChars = new char[length];
-									script.getChars(0, length, scriptChars, 0);
-									byte[] urlbytes = MozillaDelegate.wcsToMbcs (null, getUrl (), true);
-									rc = principal.GetJSPrincipals (jsContext, result);
-									long /*int*/ principals = 0;
+							long /*int*/ jsContext = XPCOM.nsIScriptContext_GetNativeContext (scriptContext);
+							if (jsContext != 0) {
+								int length = script.length ();
+								char[] scriptChars = new char[length];
+								script.getChars(0, length, scriptChars, 0);
+								byte[] urlbytes = MozillaDelegate.wcsToMbcs (null, getUrl (), true);
+								rc = principal.GetJSPrincipals (jsContext, result);
+								long /*int*/ principals = 0;
+								if (rc == XPCOM.NS_OK && result[0] != 0) {
+									principals = result[0];
+									result[0] = 0;
+								}
+								byte[] jsLibPath = getJSLibPathBytes ();
+								long /*int*/ globalJSObject = XPCOM.JS_GetGlobalObject (jsLibPath, jsContext);
+								if (globalJSObject != 0) {
+									aContractID = MozillaDelegate.wcsToMbcs (null, XPCOM.NS_CONTEXTSTACK_CONTRACTID, true);
+									rc = serviceManager.GetServiceByContractID (aContractID, IIDStore.GetIID (nsIJSContextStack.class), result);
 									if (rc == XPCOM.NS_OK && result[0] != 0) {
-										principals = result[0];
+										nsIJSContextStack stack = new nsIJSContextStack (result[0]);
 										result[0] = 0;
-									}
-									byte[] jsLibPath = getJSLibPathBytes ();
-									long /*int*/ globalJSObject = XPCOM.JS_GetGlobalObject (jsLibPath, jsContext);
-									if (globalJSObject != 0) {
-										aContractID = MozillaDelegate.wcsToMbcs (null, XPCOM.NS_CONTEXTSTACK_CONTRACTID, true);
-										rc = serviceManager.GetServiceByContractID (aContractID, IIDStore.GetIID (nsIJSContextStack.class), result);
-										if (rc == XPCOM.NS_OK && result[0] != 0) {
-											nsIJSContextStack stack = new nsIJSContextStack (result[0]);
-											result[0] = 0;
-											rc = stack.Push (jsContext);
-											if (rc != XPCOM.NS_OK) {
-												stack.Release ();
+										rc = stack.Push (jsContext);
+										if (rc != XPCOM.NS_OK) {
+											stack.Release ();
+										} else {
+											boolean success;
+											if (MozillaVersion.CheckVersion (MozillaVersion.VERSION_XR1_9, true)) {
+												success = XPCOM.JS_EvaluateUCScriptForPrincipals (jsLibPath, jsContext, globalJSObject, principals, scriptChars, length, urlbytes, 0, result) != 0;
 											} else {
-												boolean success;
-												if (MozillaVersion.CheckVersion (MozillaVersion.VERSION_XR1_9, true)) {
-													success = XPCOM.JS_EvaluateUCScriptForPrincipals (jsLibPath, jsContext, globalJSObject, principals, scriptChars, length, urlbytes, 0, result) != 0;
-												} else {
-													success = XPCOM.JS_EvaluateUCScriptForPrincipals191 (jsLibPath, jsContext, globalJSObject, principals, scriptChars, length, urlbytes, 0, 0) != 0;
-												}
-												result[0] = 0;
-												rc = stack.Pop (result);
-												stack.Release ();
-												// should principals be Release()d too?
-												new nsISupports (scriptGlobalObject).Release ();
-												principal.Release ();
-												serviceManager.Release ();
-												return success;
+												success = XPCOM.JS_EvaluateUCScriptForPrincipals191 (jsLibPath, jsContext, globalJSObject, principals, scriptChars, length, urlbytes, 0, 0) != 0;
 											}
+											result[0] = 0;
+											rc = stack.Pop (result);
+											stack.Release ();
+											// should principals be Release()d too?
+											new nsISupports (scriptGlobalObject).Release ();
+											principal.Release ();
+											serviceManager.Release ();
+											return success;
 										}
 									}
 								}
 							}
 						}
 					}
-					new nsISupports (scriptGlobalObject).Release ();
 				}
-				principal.Release ();
+				new nsISupports (scriptGlobalObject).Release ();
 			}
+			principal.Release ();
 		}
-		serviceManager.Release ();
 	}
+	serviceManager.Release ();
 
 	/* fall back to the pre-1.9 approach */
 
 	String url = PREFIX_JAVASCRIPT + script + ";void(0);";	//$NON-NLS-1$
-	int rc = webBrowser.QueryInterface (IIDStore.GetIID (nsIWebNavigation.class), result);
+	rc = webBrowser.QueryInterface (IIDStore.GetIID (nsIWebNavigation.class), result);
 	if (rc != XPCOM.NS_OK) error (rc);
 	if (result[0] == 0) error (XPCOM.NS_ERROR_NO_INTERFACE);
 
@@ -1765,7 +1738,7 @@ public String getBrowserType () {
 
 static byte[] getJSLibPathBytes () {
 	if (jsLibPathBytes == null) {
-		String[] names = MozillaVersion.CheckVersion (MozillaVersion.VERSION_XR10) ? MozillaDelegate.getJSLibraryNames () : new String[] {MozillaDelegate.getJSLibraryName_Pre10 ()};
+		String[] names = MozillaDelegate.getJSLibraryNames ();
 		for (int i = 0; i < names.length; i++) {
 			File file = new File (getMozillaPath (), names[i]);
 			if (file.exists ()) {
@@ -1860,22 +1833,12 @@ public String getText () {
 	if (rc == XPCOM.NS_OK && result[0] != 0) {
 		nsIDOMSerializer serializer = new nsIDOMSerializer (result[0]);
 		result[0] = 0;
-		if (MozillaVersion.CheckVersion (MozillaVersion.VERSION_XR1_8)) {
-			nsEmbedString string = new nsEmbedString ();
-			rc = serializer.SerializeToString (document, string.getAddress());
-			if (rc == XPCOM.NS_OK) {
-				text = string.toString();
-			}
-			string.dispose ();
-		} else {
-			rc = serializer.SerializeToString (document, result);
-			if (rc == XPCOM.NS_OK) {
-				int length = XPCOM.strlen_PRUnichar (result[0]);
-				char[] chars = new char[length];
-				XPCOM.memmove (chars, result[0], length * 2);
-				text = new String (chars);
-			}
+		nsEmbedString string = new nsEmbedString ();
+		rc = serializer.SerializeToString (document, string.getAddress());
+		if (rc == XPCOM.NS_OK) {
+			text = string.toString();
 		}
+		string.dispose ();
 		serializer.Release ();
 	}
 
@@ -2132,21 +2095,19 @@ void initFactories (nsIServiceManager serviceManager, nsIComponentManager compon
 		browser.dispose ();
 		error (rc);
 	}
-	if (MozillaVersion.CheckVersion (MozillaVersion.VERSION_XR10)) { /* > 10.x */
-		aContractID = MozillaDelegate.wcsToMbcs (null, XPCOM.NS_PROMPTER_CONTRACTID, true);
-		aClassName = MozillaDelegate.wcsToMbcs (null, "swtPrompter", true); //$NON-NLS-1$
-		rc = componentRegistrar.RegisterFactory (XPCOM.NS_PROMPTER_CID, aClassName, aContractID, factory.getAddress ());
-		if (rc != XPCOM.NS_OK) {
-			browser.dispose ();
-			error (rc);
-		}
-		aContractID = MozillaDelegate.wcsToMbcs (null, XPCOM.NS_AUTHPROMPTER_CONTRACTID, true);
-		aClassName = MozillaDelegate.wcsToMbcs (null, "swtAuthPrompter", true); //$NON-NLS-1$
-		rc = componentRegistrar.RegisterFactory (XPCOM.NS_AUTHPROMPTER_CID, aClassName, aContractID, factory.getAddress ());
-		if (rc != XPCOM.NS_OK) {
-			browser.dispose ();
-			error (rc);
-		}
+	aContractID = MozillaDelegate.wcsToMbcs (null, XPCOM.NS_PROMPTER_CONTRACTID, true);
+	aClassName = MozillaDelegate.wcsToMbcs (null, "swtPrompter", true); //$NON-NLS-1$
+	rc = componentRegistrar.RegisterFactory (XPCOM.NS_PROMPTER_CID, aClassName, aContractID, factory.getAddress ());
+	if (rc != XPCOM.NS_OK) {
+		browser.dispose ();
+		error (rc);
+	}
+	aContractID = MozillaDelegate.wcsToMbcs (null, XPCOM.NS_AUTHPROMPTER_CONTRACTID, true);
+	aClassName = MozillaDelegate.wcsToMbcs (null, "swtAuthPrompter", true); //$NON-NLS-1$
+	rc = componentRegistrar.RegisterFactory (XPCOM.NS_AUTHPROMPTER_CID, aClassName, aContractID, factory.getAddress ());
+	if (rc != XPCOM.NS_OK) {
+		browser.dispose ();
+		error (rc);
 	}
 	factory.Release();
 
@@ -2180,29 +2141,6 @@ void initFactories (nsIServiceManager serviceManager, nsIComponentManager compon
 	result[0] = 0;
 
 	categoryManager.Release ();
-
-	if (!MozillaVersion.CheckVersion (MozillaVersion.VERSION_XR10)) { /* 1.4.x - 3.6.x */
-		DownloadFactory downloadFactory = new DownloadFactory ();
-		downloadFactory.AddRef ();
-		aContractID = MozillaDelegate.wcsToMbcs (null, XPCOM.NS_DOWNLOAD_CONTRACTID, true);
-		aClassName = MozillaDelegate.wcsToMbcs (null, "swtDownload", true); //$NON-NLS-1$
-		rc = componentRegistrar.RegisterFactory (XPCOM.NS_DOWNLOAD_CID, aClassName, aContractID, downloadFactory.getAddress ());
-		if (rc != XPCOM.NS_OK) {
-			browser.dispose ();
-			error (rc);
-		}
-		downloadFactory.Release ();
-	}
-
-	if (!MozillaVersion.CheckVersion (MozillaVersion.VERSION_XR24)) { /* 1.4.x - 10.x */
-		FilePickerFactory pickerFactory = new FilePickerFactory ();
-		pickerFactory.AddRef ();
-		aContractID = MozillaDelegate.wcsToMbcs (null, XPCOM.NS_FILEPICKER_CONTRACTID, true);
-		aClassName = MozillaDelegate.wcsToMbcs (null, "swtFilePicker", true); //$NON-NLS-1$
-		rc = componentRegistrar.RegisterFactory (XPCOM.NS_FILEPICKER_CID, aClassName, aContractID, pickerFactory.getAddress ());
-		/* a failure here is fine, it likely indicates that a default implementation is provided */
-		pickerFactory.Release ();
-	}
 
 	componentRegistrar.Release ();
 }
@@ -2337,35 +2275,19 @@ void initXPCOM (String mozillaPath, boolean isXULRunner) {
 					rc = localFile.QueryInterface (IIDStore.GetIID (nsIFile.class, MozillaVersion.VERSION_XR24, true), result);
 					if (rc == XPCOM.NS_OK) { /* 24.x */
 						MozillaVersion.SetCurrentVersion (MozillaVersion.VERSION_XR24);
-					} else { /* 10.x */
-						rc = localFile.QueryInterface (IIDStore.GetIID (nsILocalFile.class, MozillaVersion.VERSION_XR10), result);
-						if (rc != XPCOM.NS_OK) {
-							/* appears to be an unsupported version */
-							browser.dispose ();
-							error (rc);
-						}
-						MozillaVersion.SetCurrentVersion (MozillaVersion.VERSION_XR10);
+					} else {
+						/* appears to be an unsupported version */
+						browser.dispose ();
+						error (rc);
 					}
 				}
 			}
 			if (result[0] != 0) new nsISupports (result[0]).Release();
 			result[0] = 0;
 		} else {
-			/*
-			 * XRE_InitEmbedding2 was not found, so fall back to XRE_InitEmbedding, which is
-			 * present in older mozilla versions.
-			 */
-			C.free (functionLoad.functionName);
-			bytes = MozillaDelegate.wcsToMbcs (null, "XRE_InitEmbedding", true); //$NON-NLS-1$
-			functionLoad.functionName = C.malloc (bytes.length);
-			C.memmove (functionLoad.functionName, bytes, bytes.length);
-			XPCOM.memmove (ptr, functionLoad, XPCOM.nsDynamicFunctionLoad_sizeof ());
-			rc = XPCOM.XPCOMGlueLoadXULFunctions (ptr);
-			/*
-			 * For now guess that the version is 1.9.2.x (aka 3.6.x), will determine
-			 * this more precisely once a browser instance has been created.
-			 */
-			MozillaVersion.SetCurrentVersion (MozillaVersion.VERSION_XR1_9_2);
+			/* appears to be an unsupported version */
+			browser.dispose ();
+			error (rc);
 		}
 
 		C.memmove (result, functionLoad.function, C.PTR_SIZEOF);
@@ -2381,21 +2303,14 @@ void initXPCOM (String mozillaPath, boolean isXULRunner) {
 
 		MozillaDelegate.loadAdditionalLibraries (mozillaPath, true);
 
-		if (MozillaVersion.CheckVersion (MozillaVersion.VERSION_XR10)) {
-			rc = XPCOM.Call (functionPtr, localFile.getAddress (), localFile.getAddress (), LocationProvider.getAddress ());
-		} else {
-			rc = XPCOM.Call (functionPtr, localFile.getAddress (), localFile.getAddress (), LocationProvider.getAddress (), 0, 0);
-		}
+		rc = XPCOM.Call (functionPtr, localFile.getAddress (), localFile.getAddress (), LocationProvider.getAddress ());
 		if (rc == XPCOM.NS_OK) {
 			System.setProperty (XULRUNNER_PATH, mozillaPath);
 		}
 	} else {
-		/*
-		 * For now guess that the version is equivalent to Firefox 3.6.x (aka XULRunner 1.9.2.x),
-		 * will determine this more precisely once a browser instance has been created.
-		 */
-		MozillaVersion.SetCurrentVersion (MozillaVersion.VERSION_XR1_9_2);
-		rc = XPCOM.NS_InitXPCOM2 (0, localFile.getAddress(), LocationProvider.getAddress ());
+		/* appears to be an unsupported version */
+		browser.dispose ();
+		throw new SWTError("Unsupported Mozilla version");
 	}
 	localFile.Release ();
 	if (rc != XPCOM.NS_OK) {

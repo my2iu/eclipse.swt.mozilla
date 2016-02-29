@@ -51,11 +51,7 @@ static String getCacheParentPath () {
 }
 
 static String[] getJSLibraryNames () {
-	return new String[] {"mozjs.dll", "xul.dll"}; //$NON-NLS-1$ //$NON-NLS-2$
-}
-
-static String getJSLibraryName_Pre10 () {
-	return "js3250.dll"; //$NON-NLS-1$
+	return new String[] {"xul.dll"}; //$NON-NLS-1$
 }
 
 static String getLibraryName (String mozillaPath) {
@@ -181,7 +177,7 @@ long /*int*/ getSiteWindow () {
 	* if Mozilla.getSiteWindow() is ever invoked by a path other than one of
 	* the two described above.
 	*/
-	if (!MozillaVersion.CheckVersion (MozillaVersion.VERSION_XR10) || Mozilla.IsGettingSiteWindow) {
+	if (Mozilla.IsGettingSiteWindow) {
 		return getHandle ();
 	}
 
@@ -201,64 +197,62 @@ boolean hookEnterExit () {
 }
 
 void init () {
-	if (MozillaVersion.CheckVersion (MozillaVersion.VERSION_XR10)) {
-		/*
-		* In XULRunner versions > 4, sending WM_GETDLGCODE to a WM_KEYDOWN's MSG hwnd answers 0
-		* instead of the expected DLGC_WANTALLKEYS.  This causes the default traversal framework
-		* perform traversals outside of the Browser when it should not.  Hook a Traverse listener
-		* to work around these problems.
-		*/
-		browser.addListener (SWT.Traverse, new Listener () {
-			@Override
-			public void handleEvent (Event event) {
-				switch (event.detail) {
-					case SWT.TRAVERSE_RETURN:
-					case SWT.TRAVERSE_ESCAPE: {
-						/* always veto the traversal */
-						event.doit = false;
-						break;
-					}
-					case SWT.TRAVERSE_TAB_NEXT:
-					case SWT.TRAVERSE_TAB_PREVIOUS: {
-						/* veto the traversal whenever an element in the browser has focus */
-						long /*int*/[] result = new long /*int*/[1];
-						int rc = XPCOM.NS_GetServiceManager (result);
-						if (rc != XPCOM.NS_OK) Mozilla.error (rc);
-						if (result[0] == 0) Mozilla.error (XPCOM.NS_NOINTERFACE);
-						nsIServiceManager serviceManager = new nsIServiceManager (result[0]);
+	/*
+	* In XULRunner versions > 4, sending WM_GETDLGCODE to a WM_KEYDOWN's MSG hwnd answers 0
+	* instead of the expected DLGC_WANTALLKEYS.  This causes the default traversal framework
+	* perform traversals outside of the Browser when it should not.  Hook a Traverse listener
+	* to work around these problems.
+	*/
+	browser.addListener (SWT.Traverse, new Listener () {
+		@Override
+		public void handleEvent (Event event) {
+			switch (event.detail) {
+				case SWT.TRAVERSE_RETURN:
+				case SWT.TRAVERSE_ESCAPE: {
+					/* always veto the traversal */
+					event.doit = false;
+					break;
+				}
+				case SWT.TRAVERSE_TAB_NEXT:
+				case SWT.TRAVERSE_TAB_PREVIOUS: {
+					/* veto the traversal whenever an element in the browser has focus */
+					long /*int*/[] result = new long /*int*/[1];
+					int rc = XPCOM.NS_GetServiceManager (result);
+					if (rc != XPCOM.NS_OK) Mozilla.error (rc);
+					if (result[0] == 0) Mozilla.error (XPCOM.NS_NOINTERFACE);
+					nsIServiceManager serviceManager = new nsIServiceManager (result[0]);
+					result[0] = 0;
+					byte[] aContractID = MozillaDelegate.wcsToMbcs (null, XPCOM.NS_FOCUSMANAGER_CONTRACTID, true);
+					rc = serviceManager.GetServiceByContractID (aContractID, IIDStore.GetIID (nsIFocusManager.class, MozillaVersion.VERSION_XR10), result);
+					serviceManager.Release ();
+
+					if (rc == XPCOM.NS_OK && result[0] != 0) {
+						nsIFocusManager focusManager = new nsIFocusManager (result[0]);
 						result[0] = 0;
-						byte[] aContractID = MozillaDelegate.wcsToMbcs (null, XPCOM.NS_FOCUSMANAGER_CONTRACTID, true);
-						rc = serviceManager.GetServiceByContractID (aContractID, IIDStore.GetIID (nsIFocusManager.class, MozillaVersion.VERSION_XR10), result);
-						serviceManager.Release ();
-
+						rc = focusManager.GetFocusedElement (result);
+						focusManager.Release ();
+						event.doit = result[0] == 0;
 						if (rc == XPCOM.NS_OK && result[0] != 0) {
-							nsIFocusManager focusManager = new nsIFocusManager (result[0]);
-							result[0] = 0;
-							rc = focusManager.GetFocusedElement (result);
-							focusManager.Release ();
-							event.doit = result[0] == 0;
-							if (rc == XPCOM.NS_OK && result[0] != 0) {
-								new nsISupports (result[0]).Release ();
-							}
+							new nsISupports (result[0]).Release ();
 						}
-						break;
 					}
+					break;
 				}
 			}
-		});
+		}
+	});
 
-		/* children created in getSiteHandle() should be destroyed whenever a page is left */
-		browser.addLocationListener (new LocationAdapter () {
-			@Override
-			public void changing (LocationEvent event) {
-				Iterator<Composite> it = childWindows.iterator ();
-				while (it.hasNext ()) {
-					it.next ().dispose ();
-				}
-				childWindows.clear ();
+	/* children created in getSiteHandle() should be destroyed whenever a page is left */
+	browser.addLocationListener (new LocationAdapter () {
+		@Override
+		public void changing (LocationEvent event) {
+			Iterator<Composite> it = childWindows.iterator ();
+			while (it.hasNext ()) {
+				it.next ().dispose ();
 			}
-		});
-	}
+			childWindows.clear ();
+		}
+	});
 }
 
 void onDispose (long /*int*/ embedHandle) {
