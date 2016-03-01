@@ -75,15 +75,6 @@ class Mozilla extends WebBrowser {
 	static byte[] jsLibPathBytes;
 	static byte[] pathBytes_NSFree;
 
-	/* XULRunner detect constants */
-	static final String GCC3 = "-gcc3"; //$NON-NLS-1$
-	static final String GRERANGE_LOWER = "1.8.1.2"; //$NON-NLS-1$
-	static final String GRERANGE_LOWER_FALLBACK = "1.8"; //$NON-NLS-1$
-	static final boolean LowerRangeInclusive = true;
-	static final String GRERANGE_UPPER = "1.9.*"; //$NON-NLS-1$
-	static final boolean UpperRangeInclusive = true;
-	static final String PROPERTY_ABI = "abi"; //$NON-NLS-1$
-
 	static final int MAX_PORT = 65535;
 	static final String DEFAULTVALUE_STRING = "default"; //$NON-NLS-1$
 	static final char SEPARATOR_OS = System.getProperty ("file.separator").charAt (0); //$NON-NLS-1$
@@ -92,7 +83,6 @@ class Mozilla extends WebBrowser {
 	static final String HEADER_CONTENTLENGTH = "content-length"; //$NON-NLS-1
 	static final String HEADER_CONTENTTYPE = "content-type"; //$NON-NLS-1
 	static final String MIMETYPE_FORMURLENCODED = "application/x-www-form-urlencoded"; //$NON-NLS-1$
-	static final String MOZILLA_FIVE_HOME = "MOZILLA_FIVE_HOME"; //$NON-NLS-1$
 	static final String PREFIX_JAVASCRIPT = "javascript:"; //$NON-NLS-1$
 	static final String PREFERENCE_CHARSET = "intl.charset.default"; //$NON-NLS-1$
 	static final String PREFERENCE_DISABLEOPENDURINGLOAD = "dom.disable_open_during_load"; //$NON-NLS-1$
@@ -584,8 +574,7 @@ static void LoadLibraries () {
 		} catch (UnsatisfiedLinkError e) {
 			/*
 			* If this library failed to load then do not attempt to detect a
-			* xulrunner to use.  The Browser may still be usable if MOZILLA_FIVE_HOME
-			* points at a GRE.
+			* xulrunner to use.
 			*/
 		}
 	} else {
@@ -599,67 +588,6 @@ static void LoadLibraries () {
 		MozillaPath += SEPARATOR_OS;
 		MozillaPath += MozillaDelegate.getLibraryName (MozillaPath);
 		IsXULRunner = true;
-	}
-
-	if (initLoaded) {
-		/* attempt to discover a XULRunner to use as the GRE */
-		MozillaPath = InitDiscoverXULRunner ();
-		IsXULRunner = MozillaPath.length () > 0;
-
-		/*
-		 * Test whether the detected XULRunner can be used as the GRE before loading swt's
-		 * XULRunner library.  If it cannot be used then fall back to attempting to use
-		 * the GRE pointed to by MOZILLA_FIVE_HOME.
-		 *
-		 * One case where this will fail is attempting to use a 64-bit xulrunner while swt
-		 * is running in 32-bit mode, or vice versa.
-		 */
-		if (IsXULRunner) {
-			byte[] bytes = MozillaDelegate.wcsToMbcs (null, MozillaPath, true);
-			int rc = XPCOMInit.XPCOMGlueStartup (bytes);
-			if (rc != XPCOM.NS_OK) {
-				MozillaPath = MozillaPath.substring (0, MozillaPath.lastIndexOf (SEPARATOR_OS));
-				if (Device.DEBUG) System.out.println ("cannot use detected XULRunner: " + MozillaPath); //$NON-NLS-1$
-
-				/* attempt to XPCOMGlueStartup the GRE pointed at by MOZILLA_FIVE_HOME */
-				long /*int*/ ptr = C.getenv (MozillaDelegate.wcsToMbcs (null, MOZILLA_FIVE_HOME, true));
-				if (ptr == 0) {
-					IsXULRunner = false;
-				} else {
-					int length = C.strlen (ptr);
-					bytes = new byte[length];
-					C.memmove (bytes, ptr, length);
-					MozillaPath = new String (MozillaDelegate.mbcsToWcs (null, bytes));
-					/*
-					 * Attempting to XPCOMGlueStartup a mozilla-based GRE != xulrunner can
-					 * crash, so don't attempt unless the GRE appears to be xulrunner.
-					 */
-					if (MozillaPath.indexOf ("xulrunner") == -1) { //$NON-NLS-1$
-						IsXULRunner = false;
-					} else {
-						MozillaPath += SEPARATOR_OS;
-						MozillaPath += MozillaDelegate.getLibraryName (MozillaPath);
-						bytes = MozillaDelegate.wcsToMbcs (null, MozillaPath, true);
-						rc = XPCOMInit.XPCOMGlueStartup (bytes);
-						if (rc == XPCOM.NS_OK) {
-							/* ensure that client-supplied path is using correct separators */
-							if (SEPARATOR_OS == '/') {
-								MozillaPath = MozillaPath.replace ('\\', SEPARATOR_OS);
-							} else {
-								MozillaPath = MozillaPath.replace ('/', SEPARATOR_OS);
-							}
-						} else {
-							IsXULRunner = false;
-							MozillaPath = MozillaPath.substring (0, MozillaPath.lastIndexOf (SEPARATOR_OS));
-							if (Device.DEBUG) System.out.println ("failed to start as XULRunner: " + MozillaPath); //$NON-NLS-1$
-						}
-					}
-				}
-			}
-			if (IsXULRunner) {
-				XPCOMInitWasGlued = true;
-			}
-		}
 	}
 }
 
@@ -1912,92 +1840,6 @@ public Object getWebBrowser () {
 	} catch (InvocationTargetException e) {
 	}
 	return null;
-}
-
-/**
- * This method attempts to discover XULRunner and if found returns path of
- * the mozilla library, else return empty string.
- *
- * @return string Mozilla path.
- */
-static String InitDiscoverXULRunner () {
-	/*
-	* Up to three XULRunner detection attempts will be made:
-	*
-	* 1. A XULRunner with 1.8.1.2 <= version < 2.0, and with "abi" property matching
-	* the current runtime.  Note that XULRunner registrations began including abi
-	* info as of version 1.9.x, so older versions than this will not be returned.
-	* 2. A XULRunner with 1.8.1.2 <= version < 2.0.  XULRunner 1.8.1.2 is the oldest
-	* release that enables the Browser to expose its JavaXPCOM interfaces to clients.
-	* 3. A XULRunner with 1.8.0.1 <= version < 2.0.
-	*/
-
-	GREVersionRange range = null;
-	try {
-		range = new GREVersionRange ();
-	} catch (NoClassDefFoundError e) {
-		/* Failed to discover XULRunner, return empty string. */
-		return "";
-	} catch (UnsatisfiedLinkError e) {
-		/* Failed to discover XULRunner, return empty string. */
-		return "";
-	}
-	byte[] bytes = MozillaDelegate.wcsToMbcs (null, GRERANGE_LOWER, true);
-	long /*int*/ lower = C.malloc (bytes.length);
-	C.memmove (lower, bytes, bytes.length);
-	range.lower = lower;
-	range.lowerInclusive = LowerRangeInclusive;
-
-	bytes = MozillaDelegate.wcsToMbcs (null, GRERANGE_UPPER, true);
-	long /*int*/ upper = C.malloc (bytes.length);
-	C.memmove (upper, bytes, bytes.length);
-	range.upper = upper;
-	range.upperInclusive = UpperRangeInclusive;
-
-	GREProperty property = new GREProperty ();
-	bytes = MozillaDelegate.wcsToMbcs (null, PROPERTY_ABI, true);
-	long /*int*/ name = C.malloc (bytes.length);
-	C.memmove (name, bytes, bytes.length);
-	property.property = name;
-	bytes = MozillaDelegate.wcsToMbcs (null, Arch () + GCC3, true);
-	long /*int*/ value = C.malloc (bytes.length);
-	C.memmove (value, bytes, bytes.length);
-	property.value = value;
-
-	int length = XPCOMInit.PATH_MAX;
-	long /*int*/ greBuffer = C.malloc (length);
-	int rc = XPCOMInit.GRE_GetGREPathWithProperties (range, 1, property, 1, greBuffer, length);
-
-	if (rc != XPCOM.NS_OK) {
-		/* Fall back to attempt #2 */
-		rc = XPCOMInit.GRE_GetGREPathWithProperties (range, 1, property, 0, greBuffer, length); /* note: propertiesLength is 0 */
-		if (rc != XPCOM.NS_OK) {
-			/* Fall back to attempt #3 */
-			C.free (lower);
-			bytes = MozillaDelegate.wcsToMbcs (null, GRERANGE_LOWER_FALLBACK, true);
-			lower = C.malloc (bytes.length);
-			C.memmove (lower, bytes, bytes.length);
-			range.lower = lower;
-			rc = XPCOMInit.GRE_GetGREPathWithProperties (range, 1, property, 0, greBuffer, length); /* note: propertiesLength is 0 */
-		}
-	}
-	C.free (value);
-	C.free (name);
-	C.free (lower);
-	C.free (upper);
-
-	String result = null;
-	if (rc == XPCOM.NS_OK) {
-		/* indicates that a XULRunner was found */
-		length = C.strlen (greBuffer);
-		bytes = new byte[length];
-		C.memmove (bytes, greBuffer, length);
-		result = new String (MozillaDelegate.mbcsToWcs (null, bytes));
-	} else {
-		result = ""; //$NON-NLS-1$
-	}
-	C.free (greBuffer);
-	return result;
 }
 
 void initExternal (String profilePath) {
